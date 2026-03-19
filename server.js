@@ -64,8 +64,13 @@ app.get('/api/stream', async (req, res) => {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     console.log(`Streaming using yt-dlp: ${videoUrl}`);
 
-    // Use 'yt-dlp' from PATH if available (for Linux/Render), otherwise fallback to local exe
-    const ytdlpPath = process.platform === 'win32' ? `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"` : 'yt-dlp';
+    // Use 'yt-dlp' from PATH if available (for Linux/Render), otherwise fallback to local exe or downloaded binary
+    let ytdlpPath = 'yt-dlp';
+    if (process.platform === 'win32') {
+      ytdlpPath = `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"`;
+    } else if (fs.existsSync(path.join(__dirname, 'yt-dlp'))) {
+      ytdlpPath = `./yt-dlp`;
+    }
     
     // Fixed yt-dlp command with better flags
     const command = `${ytdlpPath} --no-playlist --flat-playlist -f bestaudio -g ${videoUrl}`;
@@ -123,7 +128,7 @@ app.get(/.*/, (req, res) => {
 });
 
 import http from 'http';
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 server.listen(PORT, '0.0.0.0', () => {

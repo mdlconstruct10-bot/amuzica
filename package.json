@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"vite --host\" \"node server.js\"",
     "start": "node server.js",
-    "build": "vite build",
+    "build": "vite build && (if [ \"$OSTYPE\" != \"msys\" ]; then curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod a+rx yt-dlp; fi)",
     "lint": "eslint .",
     "preview": "vite preview"
   },
