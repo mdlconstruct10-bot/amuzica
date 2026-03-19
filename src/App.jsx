@@ -375,6 +375,19 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* HIDDEN AUDIO ELEMENT - CRITICAL FOR PLAYBACK */}
+      <audio 
+        ref={audioRef} 
+        crossOrigin="anonymous" 
+        onTimeUpdate={handleTimeUpdate} 
+        onEnded={handleEnded} 
+        onCanPlay={() => {
+          if (isPlaying && audioRef.current) {
+            audioRef.current.play().catch(e => console.error("Auto-play failed:", e));
+          }
+        }}
+      />
+
       {/* Splash Screen */}
       <div className={`splash-screen ${!showSplash ? 'hidden' : ''}`}>
         <div className="mdl-logo">MDL</div>
