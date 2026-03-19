@@ -65,12 +65,20 @@ app.get('/api/stream', async (req, res) => {
     console.log(`Streaming using yt-dlp: ${videoUrl}`);
 
     // Use 'yt-dlp' from PATH if available (for Linux/Render), otherwise fallback to local exe
-    const ytdlpPath = process.platform === 'win32' ? `"C:/Users/Loren/Desktop/MUZICA/yt-dlp.exe"` : 'yt-dlp';
-    const { stdout } = await execAsync(`${ytdlpPath} -f bestaudio -g ${videoUrl}`);
+    const ytdlpPath = process.platform === 'win32' ? `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"` : 'yt-dlp';
+    
+    // Fixed yt-dlp command with better flags
+    const command = `${ytdlpPath} --no-playlist --flat-playlist -f bestaudio -g ${videoUrl}`;
+    console.log(`Executing: ${command}`);
+    
+    const { stdout, stderr } = await execAsync(command);
+    
+    if (stderr) console.warn(`yt-dlp stderr: ${stderr}`);
+    
     const streamUrl = stdout.trim();
     
     if (!streamUrl) {
-      throw new Error('yt-dlp failed to extract stream URL');
+      throw new Error(`yt-dlp failed to extract stream URL. stderr: ${stderr}`);
     }
 
     console.log(`yt-dlp extracted URL successfully`);

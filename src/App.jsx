@@ -8,16 +8,16 @@ function App() {
   const [trending, setTrending] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [isLoadingTrending, setIsLoadingTrending] = useState(true)
-  
+
   const [activeTab, setActiveTab] = useState('home') // 'home' or 'favorites'
   const [favorites, setFavorites] = useState(() => {
     try { return JSON.parse(localStorage.getItem('muzica_favorites')) || [] } catch { return [] }
   })
-  
+
   const [queue, setQueue] = useState([])
   const [currentIndex, setCurrentIndex] = useState(-1)
   const currentTrack = queue[currentIndex] || null
-  
+
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPlayerOpen, setIsPlayerOpen] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -26,13 +26,13 @@ function App() {
   const [showEffects, setShowEffects] = useState(false)
   const [bassAmount, setBassAmount] = useState(0) // 0 to 40 dB
   const [boostVolume, setBoostVolume] = useState(1) // 1 to 4x multiplier
-  
+
   const audioRef = useRef(null)
   const audioCtxRef = useRef(null)
   const sourceRef = useRef(null)
   const bassFilterRef = useRef(null)
   const gainNodeRef = useRef(null)
-  const [useAudioFx, setUseAudioFx] = useState(false) // Default to OFF for stability on iOS
+  const [useAudioFx, setUseAudioFx] = useState(false) 
 
   const resetAudioEngine = () => {
     if (audioCtxRef.current) {
@@ -48,7 +48,7 @@ function App() {
   const initAudioCtx = () => {
     try {
       if (audioCtxRef.current) return
-      
+
       const AudioContext = window.AudioContext || window.webkitAudioContext
       if (!AudioContext) {
         console.warn('Web Audio API not supported')
@@ -59,17 +59,17 @@ function App() {
       const source = ctx.createMediaElementSource(audioRef.current)
       const bass = ctx.createBiquadFilter()
       const gain = ctx.createGain()
-      
+
       bass.type = 'lowshelf'
       bass.frequency.value = 100
       bass.gain.value = bassAmount
-      
+
       gain.gain.value = boostVolume
-      
+
       source.connect(bass)
       bass.connect(gain)
       gain.connect(ctx.destination)
-      
+
       audioCtxRef.current = ctx
       sourceRef.current = source
       bassFilterRef.current = bass
@@ -104,8 +104,8 @@ function App() {
       // Actually, let's just make it so change requires a re-load for now to be safe, 
       // OR better:
       if (audioRef.current && isPlaying) {
-         // Resetting engine to bypass FX
-         resetAudioEngine()
+        // Resetting engine to bypass FX
+        resetAudioEngine()
       }
     }
   }, [useAudioFx])
@@ -164,29 +164,38 @@ function App() {
       setIsPlaying(false)
       setProgress(0)
       const vidId = track.videoId || (track.url && track.url.split('?v=')[1])
+      if (!vidId) return;
+
       const streamUrl = await getAudioStream(vidId)
       if (streamUrl && audioRef.current) {
-        if (useAudioFx) {
-          initAudioCtx() 
-          if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-            await audioCtxRef.current.resume()
-          }
-        }
+        // Stop any current playback
+        audioRef.current.pause()
         audioRef.current.src = streamUrl
         audioRef.current.load()
+
+        if (useAudioFx) {
+          initAudioCtx()
+          if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+            await audioCtxRef.current.resume().catch(console.error)
+          }
+        }
+
         const playPromise = audioRef.current.play()
         if (playPromise !== undefined) {
           playPromise.then(() => {
             setIsPlaying(true)
           }).catch(e => {
-            if (useAudioFx) resetAudioEngine()
+            console.error("Playback failed:", e)
+            // If FX failed, try to reset and play again
+            if (useAudioFx) {
+              resetAudioEngine()
+              audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error)
+            }
           })
         }
       }
     } catch (err) {
-      if (audioRef.current && !isPlaying) {
-         audioRef.current.play().catch(e => {})
-      }
+      console.error("Load Audio failed:", err)
     }
   }
 
@@ -262,17 +271,17 @@ function App() {
       <div key={`${keyPrefix}-${index}`} className="track-item" onClick={() => playTrackFromSearch(track)}>
         <img className="track-thumb" src={track.thumbnail} alt="Thumb" loading="lazy" />
         <div className="track-info">
-          <div className="track-title" dangerouslySetInnerHTML={{__html: track.title}} />
+          <div className="track-title" dangerouslySetInnerHTML={{ __html: track.title }} />
           <div className="track-artist">{track.uploaderName}</div>
         </div>
         <button className="fav-btn" onClick={(e) => toggleFavorite(e, track)}>
           {isFav ? (
-            <svg viewBox="0 0 24 24" fill="var(--accent-color)" width="24" height="24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            <svg viewBox="0 0 24 24" fill="var(--accent-color)" width="24" height="24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
           ) : (
-            <svg viewBox="0 0 24 24" fill="var(--text-muted)" width="24" height="24"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
+            <svg viewBox="0 0 24 24" fill="var(--text-muted)" width="24" height="24"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z" /></svg>
           )}
         </button>
-        <button className="add-queue-btn" onClick={(e) => addToQueue(e, track)} style={{marginLeft: 8}}>+</button>
+        <button className="add-queue-btn" onClick={(e) => addToQueue(e, track)} style={{ marginLeft: 8 }}>+</button>
       </div>
     )
   }
@@ -317,16 +326,16 @@ function App() {
   return (
     <div className="app-container">
       <header className="header">
-        <form onSubmit={(e) => { e.preventDefault(); document.activeElement.blur(); }} style={{width: '100%', position: 'relative'}}>
-          <input 
-            type="text" 
-            className="search-bar glass-panel" 
-            placeholder="Căutare pe YouTube..." 
+        <form onSubmit={(e) => { e.preventDefault(); document.activeElement.blur(); }} style={{ width: '100%', position: 'relative' }}>
+          <input
+            type="text"
+            className="search-bar glass-panel"
+            placeholder="Căutare pe YouTube..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <button type="submit" style={{position: 'absolute', right: 20, top: 12}}>
-             <svg fill="var(--text-muted)" width="24" height="24" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <button type="submit" style={{ position: 'absolute', right: 20, top: 12 }}>
+            <svg fill="var(--text-muted)" width="24" height="24" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </button>
         </form>
         <div className="tabs">
@@ -342,7 +351,7 @@ function App() {
               <h2 className="section-title">Melodii Apreciate</h2>
               {favorites.length > 0 && (
                 <button className="play-all-btn" onClick={playAllFavorites}>
-                   ▶ Joacă Toate
+                  ▶ Joacă Toate
                 </button>
               )}
             </div>
@@ -358,17 +367,17 @@ function App() {
             ) : (
               <h2 className="section-title">Sugerată pentru tine</h2>
             )}
-            
+
             <div className="track-list">
               {isSearching && searchQuery.length > 2 && <p className="status-text">Se caută...</p>}
-              
+
               {/* Search Results */}
               {!isSearching && searchQuery.length > 2 && results.map((track, i) => renderTrackItem(track, i, 's'))}
-              
+
               {/* Trending if no search */}
               {searchQuery.trim().length <= 2 && isLoadingTrending && <p className="status-text">Se încarcă sugestii...</p>}
               {searchQuery.trim().length <= 2 && !isLoadingTrending && trending.map((track, i) => renderTrackItem(track, i, 't'))}
-              
+
               {!isSearching && results.length === 0 && searchQuery.length > 2 && (
                 <p className="status-text">Nu a fost găsită nicio melodie.</p>
               )}
@@ -385,7 +394,7 @@ function App() {
                   <div className="queue-index">{i === currentIndex ? '▶' : i + 1}</div>
                   <img className="track-thumb" src={track.thumbnail} alt="Thumb" loading="lazy" />
                   <div className="track-info">
-                    <div className="track-title" dangerouslySetInnerHTML={{__html: track.title}} />
+                    <div className="track-title" dangerouslySetInnerHTML={{ __html: track.title }} />
                     <div className="track-artist">{track.uploaderName}</div>
                   </div>
                 </div>
@@ -396,8 +405,8 @@ function App() {
       </main>
 
       {/* Hidden Audio Element */}
-      <audio 
-        ref={audioRef} 
+      <audio
+        ref={audioRef}
         crossOrigin="anonymous"
         onEnded={handleEnded}
         onPause={() => setIsPlaying(false)}
@@ -411,17 +420,17 @@ function App() {
           <div className="mini-progress" style={{ width: `${(progress / duration) * 100}%` }}></div>
           <img className="mini-thumb" src={currentTrack.thumbnail} alt="Mini Thumb" />
           <div className="track-info">
-            <div className="track-title" dangerouslySetInnerHTML={{__html: currentTrack.title}} />
+            <div className="track-title" dangerouslySetInnerHTML={{ __html: currentTrack.title }} />
             <div className="track-artist">{currentTrack.uploaderName}</div>
           </div>
           <div className="mini-controls" onClick={(e) => e.stopPropagation()}>
             <button className="btn-play-pause" onClick={togglePlayPause}>
               {isPlaying ? (
                 // Pause Icon
-                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
               ) : (
                 // Play Icon
-                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
               )}
             </button>
           </div>
@@ -433,27 +442,27 @@ function App() {
         <div className="full-player glass-panel">
           <div className="fp-header">
             <button className="fp-close" onClick={() => setIsPlayerOpen(false)}>
-              <svg viewBox="0 0 24 24"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z" /></svg>
             </button>
             <span className="fp-header-title">Now Playing</span>
-            <div style={{width: 24}}></div> {/* Placeholder for alignment */}
+            <div style={{ width: 24 }}></div> {/* Placeholder for alignment */}
           </div>
-          
+
           <div className="fp-art-container">
             <img className="fp-art" src={currentTrack.thumbnail.replace('mqdefault', 'hqdefault')} alt="Album Art" />
           </div>
-          
+
           <div className="fp-info">
-            <h2 className="fp-title" dangerouslySetInnerHTML={{__html: currentTrack.title}}></h2>
+            <h2 className="fp-title" dangerouslySetInnerHTML={{ __html: currentTrack.title }}></h2>
             <p className="fp-artist">{currentTrack.uploaderName}</p>
           </div>
 
           <div className="fp-progress-container">
-            <input 
-              type="range" 
-              className="fp-progress-bar" 
-              min="0" 
-              max={duration || 100} 
+            <input
+              type="range"
+              className="fp-progress-bar"
+              min="0"
+              max={duration || 100}
               value={progress}
               onChange={handleSeek}
             />
@@ -465,32 +474,32 @@ function App() {
 
           <div className="fp-controls">
             <button className="fp-btn-secondary" onClick={() => setRepeatMode(prev => prev === 'none' ? 'one' : prev === 'one' ? 'all' : 'none')}>
-               <svg viewBox="0 0 24 24" style={{fill: repeatMode !== 'none' ? 'var(--accent-color)' : 'var(--text-main)', width: 24, height: 24}}>
-                 {repeatMode === 'one' ? (
-                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/>
-                 ) : (
-                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
-                 )}
-               </svg>
-               {repeatMode === 'all' && <span style={{fontSize: 10, position: 'absolute', bottom: -5, color: 'var(--accent-color)'}}>ALL</span>}
+              <svg viewBox="0 0 24 24" style={{ fill: repeatMode !== 'none' ? 'var(--accent-color)' : 'var(--text-main)', width: 24, height: 24 }}>
+                {repeatMode === 'one' ? (
+                  <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z" />
+                ) : (
+                  <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                )}
+              </svg>
+              {repeatMode === 'all' && <span style={{ fontSize: 10, position: 'absolute', bottom: -5, color: 'var(--accent-color)' }}>ALL</span>}
             </button>
 
             <button className="fp-btn-secondary" onClick={playPrev} disabled={currentIndex === 0}>
-               <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg>
             </button>
             <button className="fp-btn-main" onClick={togglePlayPause}>
               {isPlaying ? (
-                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
               ) : (
-                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
               )}
             </button>
             <button className="fp-btn-secondary" onClick={playNext} disabled={currentIndex === queue.length - 1 && repeatMode !== 'all'}>
-              <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
             </button>
 
             <button className="fp-btn-secondary" onClick={() => setShowEffects(true)}>
-               <svg viewBox="0 0 24 24" style={{width: 24, height: 24}}><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+              <svg viewBox="0 0 24 24" style={{ width: 24, height: 24 }}><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" /></svg>
             </button>
           </div>
 
@@ -507,51 +516,51 @@ function App() {
 
               <div className="fx-control">
                 <div className="fx-label">
-                   <span>MOD BASS EXTREM (PRO)</span>
-                   <button 
+                  <span>MOD BASS EXTREM (PRO)</span>
+                  <button
                     className={`toggle-fx-btn ${useAudioFx ? 'on' : 'off'}`}
                     onClick={() => setUseAudioFx(!useAudioFx)}
-                   >
-                     {useAudioFx ? 'ACTIVAT' : 'DEZACTIVAT'}
-                   </button>
+                  >
+                    {useAudioFx ? 'ACTIVAT' : 'DEZACTIVAT'}
+                  </button>
                 </div>
-                <p style={{fontSize: 11, color: 'var(--text-muted)'}}>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   * Activează acest mod pentru a folosi glisantele de mai jos. Pe unele telefoane poate opri sunetul.
                 </p>
               </div>
-              
-              <div className="fx-control" style={{opacity: useAudioFx ? 1 : 0.4, pointerEvents: useAudioFx ? 'all' : 'none'}}>
+
+              <div className="fx-control" style={{ opacity: useAudioFx ? 1 : 0.4, pointerEvents: useAudioFx ? 'all' : 'none' }}>
                 <div className="fx-label">
-                   <span>BASS MOD (EXTREM)</span>
-                   <span>{bassAmount} dB</span>
+                  <span>BASS MOD (EXTREM)</span>
+                  <span>{bassAmount} dB</span>
                 </div>
-                <input 
-                  type="range" 
-                  className="fx-slider" 
-                  min="0" 
-                  max="40" 
-                  value={bassAmount} 
-                  onChange={(e) => setBassAmount(Number(e.target.value))} 
+                <input
+                  type="range"
+                  className="fx-slider"
+                  min="0"
+                  max="40"
+                  value={bassAmount}
+                  onChange={(e) => setBassAmount(Number(e.target.value))}
                 />
               </div>
 
               <div className="fx-control">
                 <div className="fx-label">
-                   <span>VOLUM BOOST (LOUD)</span>
-                   <span>{Math.round(boostVolume * 100)}%</span>
+                  <span>VOLUM BOOST (LOUD)</span>
+                  <span>{Math.round(boostVolume * 100)}%</span>
                 </div>
-                <input 
-                  type="range" 
-                  className="fx-slider" 
-                  min="1" 
-                  max="4" 
+                <input
+                  type="range"
+                  className="fx-slider"
+                  min="1"
+                  max="4"
                   step="0.1"
-                  value={boostVolume} 
-                  onChange={(e) => setBoostVolume(Number(e.target.value))} 
+                  value={boostVolume}
+                  onChange={(e) => setBoostVolume(Number(e.target.value))}
                 />
               </div>
 
-              <p style={{marginTop: 'auto', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center'}}>
+              <p style={{ marginTop: 'auto', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
                 Atenție: Volumul ridicat poate distorsiona sunetul sau afecta difuzoarele. MDL MUZICCA - No limits.
               </p>
             </div>
