@@ -8,6 +8,7 @@ function App() {
   const [trending, setTrending] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [isLoadingTrending, setIsLoadingTrending] = useState(true)
+  const [playbackStatus, setPlaybackStatus] = useState("") // "Loading...", "Playing", "Error"
 
   const [activeTab, setActiveTab] = useState('home') // 'home' or 'favorites'
   const [favorites, setFavorites] = useState(() => {
@@ -169,9 +170,15 @@ function App() {
   }
 
   const playTrackFromSearch = async (track) => {
+    // CRITICAL for iOS: Unlock the audio element immediately in the click handler
+    if (audioRef.current) {
+      audioRef.current.play().catch(() => {}); // Attempt to play (will fail but unlock)
+      audioRef.current.pause();
+    }
     setQueue([track])
     setCurrentIndex(0)
     loadAudio(track)
+    setIsPlayerOpen(true)
   }
 
   const addToQueue = (e, track) => {
@@ -180,18 +187,23 @@ function App() {
   }
 
   const playFromQueue = (index) => {
+    // Unlock for iOS
+    if (audioRef.current) {
+      audioRef.current.play().catch(() => {});
+      audioRef.current.pause();
+    }
     setCurrentIndex(index)
     loadAudio(queue[index])
   }
 
   const loadAudio = async (track) => {
     try {
+      setPlaybackStatus("Se încarcă...")
       setIsPlaying(false)
       setProgress(0)
       const vidId = track.videoId || (track.url && track.url.split('?v=')[1])
       if (!vidId) return;
 
-      // Add to recently played
       setRecentPlayed(prev => {
         const filtered = prev.filter(t => t.videoId !== vidId)
         const updated = [track, ...filtered].slice(0, 20)
@@ -201,8 +213,6 @@ function App() {
 
       const streamUrl = await getAudioStream(vidId)
       if (streamUrl && audioRef.current) {
-        // Stop any current playback
-        audioRef.current.pause()
         audioRef.current.src = streamUrl
         audioRef.current.load()
 
@@ -217,9 +227,10 @@ function App() {
         if (playPromise !== undefined) {
           playPromise.then(() => {
             setIsPlaying(true)
+            setPlaybackStatus("Redare activă")
           }).catch(e => {
             console.error("Playback failed:", e)
-            // If FX failed, try to reset and play again
+            setPlaybackStatus("Eroare redare - reîncearcă")
             if (useAudioFx) {
               resetAudioEngine()
               audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error)
@@ -229,6 +240,7 @@ function App() {
       }
     } catch (err) {
       console.error("Load Audio failed:", err)
+      setPlaybackStatus("Eroare conexiune!")
     }
   }
 
@@ -493,7 +505,7 @@ function App() {
           <img className="mini-thumb" src={currentTrack.thumbnail} alt="Mini Thumb" />
           <div className="track-info">
             <div className="track-title" dangerouslySetInnerHTML={{ __html: currentTrack.title }} />
-            <div className="track-artist">{currentTrack.uploaderName}</div>
+            <div className="playback-status" style={{ fontSize: 10, color: 'var(--accent-color)' }}>{playbackStatus}</div>
           </div>
           <div className="mini-controls" onClick={(e) => e.stopPropagation()}>
             <button className="btn-play-pause" onClick={togglePlayPause}>
