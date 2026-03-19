@@ -4,6 +4,7 @@ import ytSearch from 'yt-search';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 const execAsync = promisify(exec);
+import ytdl from '@distube/ytdl-core';
 import fs from 'fs';
 import https from 'https';
 import { IncomingMessage } from 'http';
@@ -74,52 +75,55 @@ app.get('/api/stream', async (req, res) => {
       ytdlpPath = `./yt-dlp`;
     }
     
-    // Using spawn to pipe yt-dlp stdout directly to res
-    // This is much more robust than extracting a URL and proxying it manually
-    const ytArgs = [
-      '--no-playlist',
-      '--flat-playlist',
-      '-f', 'bestaudio',
-      '--output', '-', // Output to stdout
-      '--no-warnings',
-      '--ignore-errors',
-      '--force-ipv4',
-      '--extractor-args', 'youtube:player_client=web,android',
-      videoUrl
-    ];
-
-    console.log(`Spawning yt-dlp for streaming: ${ytdlpPath} ${ytArgs.join(' ')}`);
-    
-    // We remove the quotes if we are on Windows and using spawn (spawn handles spaces in paths better)
-    const normalizedPath = ytdlpPath.startsWith('"') ? ytdlpPath.slice(1, -1) : ytdlpPath;
-    const proc = spawn(normalizedPath, ytArgs);
-
+    // Using @distube/ytdl-core for robust streaming (no external exe needed)
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    proc.stdout.pipe(res);
+    try {
+      const stream = ytdl(videoUrl, {
+        filter: 'audioonly',
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25 // 32MB buffer for smoother streaming
+      });
 
-    proc.stderr.on('data', (data) => {
-      // Log errors but don't break the stream unless fatal
-      if (data.toString().includes('ERROR')) {
-        console.error(`yt-dlp Error: ${data}`);
-      }
-    });
+      stream.on('error', (err) => {
+        console.error('ytdl stream error:', err);
+        if (!res.headersSent) res.status(500).send('Stream failed');
+      });
 
-    proc.on('close', (code) => {
-      console.log(`yt-dlp process exited with code ${code}`);
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).send('Stream failed');
-      } else {
-        res.end();
-      }
-    });
+      stream.pipe(res);
 
-    // Kill process if client disconnects
-    req.on('close', () => {
-      proc.kill();
-    });
+      // Handle client disconnect
+      req.on('close', () => {
+        stream.destroy();
+      });
+
+    } catch (ytdlErr) {
+      console.warn('ytdl-core failed, falling back to yt-dlp:', ytdlErr.message);
+      
+      // FALLBACK TO YT-DLP if ytdl-core fails
+      const ytArgs = [
+        '--no-playlist',
+        '--flat-playlist',
+        '-f', 'bestaudio',
+        '--output', '-',
+        '--force-ipv4',
+        '--extractor-args', 'youtube:player_client=web,android',
+        videoUrl
+      ];
+
+      const normalizedPath = ytdlpPath.startsWith('"') ? ytdlpPath.slice(1, -1) : ytdlpPath;
+      const proc = spawn(normalizedPath, ytArgs);
+
+      proc.stdout.pipe(res);
+
+      proc.on('close', (code) => {
+        if (code !== 0 && !res.headersSent) res.status(500).end();
+        else res.end();
+      });
+
+      req.on('close', () => proc.kill());
+    }
 
   } catch (err) {
     fs.appendFileSync('error_log.txt', `[${new Date().toISOString()}] SERVER STREAM ERROR: ${err.message}\n${err.stack}\n`);
