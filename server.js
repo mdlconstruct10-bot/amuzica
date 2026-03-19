@@ -18,6 +18,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(cors());
 
+let lastError = "Nicio eroare înregistrată încă.";
+
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -57,6 +59,10 @@ app.get('/api/trending', async (req, res) => {
   }
 });
 
+app.get('/api/debug', (req, res) => {
+  res.send(`<h1>MDL System Debug</h1><pre>${lastError}</pre>`);
+});
+
 app.get('/api/stream', async (req, res) => {
   try {
     const videoId = req.query.v;
@@ -78,30 +84,46 @@ app.get('/api/stream', async (req, res) => {
     // Using @distube/ytdl-core for robust streaming (no external exe needed)
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
 
     try {
+      console.log(`Starting ytdl-core stream for: ${videoId}`);
       const stream = ytdl(videoUrl, {
         filter: 'audioonly',
         quality: 'highestaudio',
-        highWaterMark: 1 << 25 // 32MB buffer for smoother streaming
+        // Lower buffer for Render stability
+        highWaterMark: 1 << 20, 
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          }
+        }
+      });
+
+      stream.on('info', (info) => {
+        console.log(`Streaming: ${info.videoDetails.title}`);
       });
 
       stream.on('error', (err) => {
-        console.error('ytdl stream error:', err);
-        if (!res.headersSent) res.status(500).send('Stream failed');
+        const errMsg = `ytdl stream error: ${err.message} (${err.code})`;
+        console.error(errMsg);
+        lastError = `[${new Date().toISOString()}] ${errMsg}\nStack: ${err.stack}`;
+        if (!res.headersSent) {
+          res.status(500).send(errMsg);
+        }
       });
 
       stream.pipe(res);
 
-      // Handle client disconnect
       req.on('close', () => {
         stream.destroy();
       });
 
     } catch (ytdlErr) {
+      lastError = `[${new Date().toISOString()}] Catch Error: ${ytdlErr.message}`;
       console.warn('ytdl-core failed, falling back to yt-dlp:', ytdlErr.message);
       
-      // FALLBACK TO YT-DLP if ytdl-core fails
+      // FALLBACK TO YT-DLP
       const ytArgs = [
         '--no-playlist',
         '--flat-playlist',
@@ -115,6 +137,7 @@ app.get('/api/stream', async (req, res) => {
       const normalizedPath = ytdlpPath.startsWith('"') ? ytdlpPath.slice(1, -1) : ytdlpPath;
       const proc = spawn(normalizedPath, ytArgs);
 
+      res.setHeader('Content-Type', 'audio/mpeg');
       proc.stdout.pipe(res);
 
       proc.on('close', (code) => {
