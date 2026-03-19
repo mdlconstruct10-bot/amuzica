@@ -6,8 +6,17 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 import fs from 'fs';
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 app.use(cors());
+
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/api/search', async (req, res) => {
   try {
@@ -98,6 +107,11 @@ app.get('/api/stream', async (req, res) => {
     console.error('SERVER STREAM ERROR:', err);
     if (!res.headersSent) res.status(500).json({ error: err.message });
   }
+});
+
+// Catch-all to serve the frontend index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 import http from 'http';
