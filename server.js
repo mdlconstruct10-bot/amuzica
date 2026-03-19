@@ -7,6 +7,7 @@ const execAsync = promisify(exec);
 import ytdl from '@distube/ytdl-core';
 import fs from 'fs';
 import https from 'https';
+import http from 'http';
 import { IncomingMessage } from 'http';
 
 import path from 'path';
@@ -148,8 +149,8 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-import http from 'http';
-const PORT = process.env.PORT || 3000;
+// VERY IMPORTANT: Parse PORT as integer
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const server = http.createServer(app);
 
 server.listen(PORT, '0.0.0.0', () => {
