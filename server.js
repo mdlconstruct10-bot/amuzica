@@ -71,75 +71,78 @@ app.get('/api/stream', async (req, res) => {
     }
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log(`[DEBUG] Attempting stream for: ${videoId}`);
+    console.log(`[DEBUG] Request for: ${videoId}`);
 
-    // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
     res.setHeader('Accept-Ranges', 'bytes');
 
     try {
-      const info = await ytdl.getInfo(videoUrl, {
+      // Use ANDROID client to bypass "bot" detection on Render
+      const ytdlOptions = {
         requestOptions: {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 14; en_US) gzip',
+            'X-YouTube-Client-Name': '3',
+            'X-YouTube-Client-Version': '19.05.36'
           }
         }
-      });
+      };
 
-      const format = ytdl.chooseFormat(info.formats, { 
-        filter: 'audioonly', 
-        quality: 'highestaudio' 
-      });
+      const info = await ytdl.getInfo(videoUrl, ytdlOptions);
+      const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
+      
+      if (!format) throw new Error('Nu am găsit un format audio.');
 
-      if (!format) throw new Error('Nu am găsit un format audio compatibil.');
-
-      // Essential for browser playback: Correct Mime Type
       const mimeType = format.mimeType.split(';')[0] || 'audio/webm';
       res.setHeader('Content-Type', mimeType);
+      if (format.contentLength) res.setHeader('Content-Length', format.contentLength);
+
+      console.log(`[STREAM] Redare (Android Client): ${info.videoDetails.title}`);
       
-      if (format.contentLength) {
-        res.setHeader('Content-Length', format.contentLength);
-      }
-
-      console.log(`[STREAM] Redare: ${info.videoDetails.title} (${mimeType})`);
-
       const stream = ytdl.downloadFromInfo(info, { format });
-
       stream.on('error', (err) => {
         console.error('[STREAM ERROR]', err.message);
         lastError = `[${new Date().toISOString()}] Stream Error: ${err.message}`;
         if (!res.headersSent) res.status(500).end();
       });
-
       stream.pipe(res);
 
-      req.on('close', () => {
-        console.log(`[DEBUG] Client Deconectat: ${videoId}`);
-        stream.destroy();
-      });
+      req.on('close', () => { stream.destroy(); });
 
     } catch (ytdlErr) {
-      console.error('[YTDL ERROR]', ytdlErr.message);
-      lastError = `[${new Date().toISOString()}] YTDL Error: ${ytdlErr.message}`;
-      
-      // Fallback redirect (Direct YouTube Stream URL) - last resort
-      try {
-        const info = await ytdl.getInfo(videoUrl);
-        const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly' });
-        if (format && format.url) {
-           console.log("[DEBUG] Fallback: redirecting to direct URL");
-           return res.redirect(format.url);
-        }
-      } catch (e) {}
+      console.warn('[YTDL BOT DETECTED] Fallback to yt-dlp redirect...');
+      lastError = `[${new Date().toISOString()}] YTDL Bot Error: ${ytdlErr.message}`;
 
-      if (!res.headersSent) res.status(500).json({ error: ytdlErr.message });
+      // FALLBACK: Redirect to direct Google Video URL obtained via yt-dlp
+      // We use a redirect because it's more likely to work if Render's proxy is blocked but the user's IP is not.
+      try {
+        let ytdlpCmd = 'yt-dlp';
+        if (process.platform === 'win32') {
+          ytdlpCmd = `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"`;
+        } else if (fs.existsSync(path.join(__dirname, 'yt-dlp'))) {
+          ytdlpCmd = `./yt-dlp`;
+        }
+
+        const fullCmd = `${ytdlpCmd} --force-ipv4 --extractor-args "youtube:player_client=android" -f bestaudio -g ${videoUrl}`;
+        const { stdout } = await execAsync(fullCmd);
+        const streamUrl = stdout.trim();
+        
+        if (streamUrl) {
+           console.log("[DEBUG] Fallback successful: Redirecting client...");
+           return res.redirect(streamUrl);
+        }
+      } catch (e) {
+        console.error('[FALLBACK ERROR]', e.message);
+        lastError += `\n[Fallback] ${e.message}`;
+      }
+
+      if (!res.headersSent) res.status(500).json({ error: 'YouTube a blocat conexiunea. Încearcă din nou.' });
     }
 
   } catch (err) {
     console.error('[GLOBAL ERROR]', err.message);
-    lastError = `[${new Date().toISOString()}] Global Error: ${err.message}`;
     if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
