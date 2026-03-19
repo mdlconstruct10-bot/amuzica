@@ -107,50 +107,6 @@ function App() {
     return () => clearTimeout(delayDebounce)
   }, [searchQuery])
 
-  // MediaSession logic
-  useEffect(() => {
-    if ('mediaSession' in navigator && currentTrack) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title.replace(/&quot;/g, '"').replace(/&#39;/g, "'"),
-        artist: currentTrack.uploaderName || 'YouTube Artist',
-        album: 'MDL MUZICCA',
-        artwork: [
-          { src: currentTrack.thumbnail, type: 'image/jpeg' }
-        ]
-      })
-      
-      navigator.mediaSession.setActionHandler('play', () => {
-        if (audioRef.current) {
-          audioRef.current.play()
-          setIsPlaying(true)
-        }
-      })
-      navigator.mediaSession.setActionHandler('pause', () => {
-        if (audioRef.current) {
-          audioRef.current.pause()
-          setIsPlaying(false)
-        }
-      })
-      navigator.mediaSession.setActionHandler('previoustrack', playPrev)
-      navigator.mediaSession.setActionHandler('nexttrack', playNext)
-    }
-  }, [currentTrack])
-
-  // Load trending on mount
-  useEffect(() => {
-    async function fetchTrending() {
-      setIsLoadingTrending(true)
-      const data = await getTrendingMusic()
-      setTrending(data)
-      setIsLoadingTrending(false)
-    }
-    fetchTrending()
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem('muzica_favorites', JSON.stringify(favorites))
-  }, [favorites])
-
   const toggleFavorite = (e, track) => {
     e.stopPropagation()
     const exists = favorites.find(t => t.videoId === track.videoId)
@@ -170,7 +126,6 @@ function App() {
   }
 
   const playTrackFromSearch = async (track) => {
-    // Replace queue with just this track
     setQueue([track])
     setCurrentIndex(0)
     loadAudio(track)
@@ -190,11 +145,8 @@ function App() {
     try {
       setIsPlaying(false)
       setProgress(0)
-      
       const vidId = track.videoId || (track.url && track.url.split('?v=')[1])
-      console.log('Loading audio for:', vidId)
       const streamUrl = await getAudioStream(vidId)
-      
       if (streamUrl && audioRef.current) {
         if (useAudioFx) {
           initAudioCtx() 
@@ -202,27 +154,20 @@ function App() {
             await audioCtxRef.current.resume()
           }
         }
-
         audioRef.current.src = streamUrl
         audioRef.current.load()
-        
         const playPromise = audioRef.current.play()
         if (playPromise !== undefined) {
           playPromise.then(() => {
             setIsPlaying(true)
-            console.log('Playback started')
           }).catch(e => {
-            console.error('Play error:', e)
-            // If it failed because of AudioContext, try resetting
             if (useAudioFx) resetAudioEngine()
           })
         }
       }
     } catch (err) {
-      console.error('LoadAudio Error:', err)
-      // Fallback if Web Audio fails
       if (audioRef.current && !isPlaying) {
-         audioRef.current.play().catch(e => console.error('Final fallback failed:', e))
+         audioRef.current.play().catch(e => {})
       }
     }
   }
@@ -259,11 +204,9 @@ function App() {
 
   const togglePlayPause = async () => {
     if (!audioRef.current || !currentTrack) return
-    
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       await audioCtxRef.current.resume()
     }
-
     if (isPlaying) {
       audioRef.current.pause()
       setIsPlaying(false)
@@ -311,12 +254,47 @@ function App() {
             <svg viewBox="0 0 24 24" fill="var(--text-muted)" width="24" height="24"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
           )}
         </button>
-        <button className="add-queue-btn" onClick={(e) => addToQueue(e, track)} style={{marginLeft: 8}}>
-          +
-        </button>
+        <button className="add-queue-btn" onClick={(e) => addToQueue(e, track)} style={{marginLeft: 8}}>+</button>
       </div>
     )
   }
+
+  // MediaSession logic
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title.replace(/&quot;/g, '"').replace(/&#39;/g, "'"),
+        artist: currentTrack.uploaderName || 'YouTube Artist',
+        album: 'MDL MUZICCA',
+        artwork: [{ src: currentTrack.thumbnail, type: 'image/jpeg' }]
+      })
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (audioRef.current) { audioRef.current.play(); setIsPlaying(true); }
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (audioRef.current) { audioRef.current.pause(); setIsPlaying(false); }
+      })
+      navigator.mediaSession.setActionHandler('previoustrack', playPrev)
+      navigator.mediaSession.setActionHandler('nexttrack', playNext)
+    }
+  }, [currentTrack, playPrev, playNext])
+
+  // Load trending on mount
+  useEffect(() => {
+    async function fetchTrending() {
+      setIsLoadingTrending(true)
+      const data = await getTrendingMusic()
+      setTrending(data)
+      setIsLoadingTrending(false)
+    }
+    fetchTrending()
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('muzica_favorites', JSON.stringify(favorites))
+  }, [favorites])
+
+
 
   return (
     <div className="app-container">
