@@ -92,6 +92,24 @@ function App() {
     }
   }, [boostVolume])
 
+  useEffect(() => {
+    if (useAudioFx && audioRef.current && isPlaying) {
+      initAudioCtx()
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume()
+      }
+    } else if (!useAudioFx && audioCtxRef.current) {
+      // We don't necessarily want to close it, just disconnect if we could, 
+      // but simpler to just let the user re-play. 
+      // Actually, let's just make it so change requires a re-load for now to be safe, 
+      // OR better:
+      if (audioRef.current && isPlaying) {
+         // Resetting engine to bypass FX
+         resetAudioEngine()
+      }
+    }
+  }, [useAudioFx])
+
   // Search logic
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
