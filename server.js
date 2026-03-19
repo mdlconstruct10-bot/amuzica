@@ -110,7 +110,7 @@ app.get('/api/stream', async (req, res) => {
 });
 
 // Catch-all to serve the frontend index.html
-app.get('*', (req, res) => {
+app.get('(.*)', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
