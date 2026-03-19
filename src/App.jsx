@@ -33,6 +33,13 @@ function App() {
   const bassFilterRef = useRef(null)
   const gainNodeRef = useRef(null)
   const [useAudioFx, setUseAudioFx] = useState(false) 
+  const [showSplash, setShowSplash] = useState(true)
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('muzica_search_history')) || [] } catch { return [] }
+  })
+  const [recentPlayed, setRecentPlayed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('muzica_recent_played')) || [] } catch { return [] }
+  })
 
   const resetAudioEngine = () => {
     if (audioCtxRef.current) {
@@ -117,17 +124,31 @@ function App() {
   // Search logic
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
-      if (searchQuery.trim().length > 2) {
+      const query = searchQuery.trim()
+      if (query.length > 2) {
         setIsSearching(true)
-        const items = await searchYouTube(searchQuery)
+        const items = await searchYouTube(query)
         setResults(items)
         setIsSearching(false)
-      } else if (searchQuery.trim().length === 0) {
+        
+        // Add to history
+        setSearchHistory(prev => {
+          const filtered = prev.filter(h => h !== query)
+          const updated = [query, ...filtered].slice(0, 10)
+          localStorage.setItem('muzica_search_history', JSON.stringify(updated))
+          return updated
+        })
+      } else if (query.length === 0) {
         setResults([])
       }
-    }, 500)
+    }, 300) // Faster debounce (300ms)
     return () => clearTimeout(delayDebounce)
   }, [searchQuery])
+
+  const clearHistory = () => {
+    setSearchHistory([])
+    localStorage.removeItem('muzica_search_history')
+  }
 
   const toggleFavorite = (e, track) => {
     e.stopPropagation()
@@ -169,6 +190,14 @@ function App() {
       setProgress(0)
       const vidId = track.videoId || (track.url && track.url.split('?v=')[1])
       if (!vidId) return;
+
+      // Add to recently played
+      setRecentPlayed(prev => {
+        const filtered = prev.filter(t => t.videoId !== vidId)
+        const updated = [track, ...filtered].slice(0, 20)
+        localStorage.setItem('muzica_recent_played', JSON.stringify(updated))
+        return updated
+      })
 
       const streamUrl = await getAudioStream(vidId)
       if (streamUrl && audioRef.current) {
@@ -325,10 +354,21 @@ function App() {
     localStorage.setItem('muzica_favorites', JSON.stringify(favorites))
   }, [favorites])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 2500)
+    return () => clearTimeout(timer)
+  }, [])
+
 
 
   return (
     <div className="app-container">
+      {/* Splash Screen */}
+      <div className={`splash-screen ${!showSplash ? 'hidden' : ''}`}>
+        <div className="mdl-logo">MDL</div>
+        <div className="mdl-subtitle">Premium Muzică System</div>
+      </div>
+
       <header className="header">
         <form onSubmit={(e) => { e.preventDefault(); document.activeElement.blur(); }} style={{ width: '100%', position: 'relative' }}>
           <input
@@ -342,6 +382,19 @@ function App() {
             <svg fill="var(--text-muted)" width="24" height="24" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </button>
         </form>
+
+        {searchQuery.length === 0 && searchHistory.length > 0 && activeTab === 'home' && (
+          <div className="history-section">
+            {searchHistory.map((h, i) => (
+              <div key={i} className="history-tag" onClick={() => setSearchQuery(h)}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+                {h}
+              </div>
+            ))}
+            <button onClick={clearHistory} style={{ fontSize: 11, color: 'var(--accent-color)', marginLeft: 'auto' }}>Șterge Tot</button>
+          </div>
+        )}
+
         <div className="tabs">
           <button className={`tab-btn ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>Acasă</button>
           <button className={`tab-btn ${activeTab === 'favorites' ? 'active' : ''}`} onClick={() => setActiveTab('favorites')}>Inimă ❤️</button>
@@ -369,7 +422,22 @@ function App() {
             {searchQuery.length > 0 ? (
               <h2 className="section-title">Rezultate Căutare</h2>
             ) : (
-              <h2 className="section-title">Sugerată pentru tine</h2>
+              <>
+                {recentPlayed.length > 0 && (
+                  <div className="recent-section">
+                    <h2 className="section-title">Ascultate Recent</h2>
+                    <div className="horizontal-scroll">
+                      {recentPlayed.map((track, i) => (
+                        <div key={i} className="recent-card" onClick={() => playTrackFromSearch(track)}>
+                          <img src={track.thumbnail} alt="Card" />
+                          <div className="recent-card-title" dangerouslySetInnerHTML={{ __html: track.title }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <h2 className="section-title">Sugerată pentru tine</h2>
+              </>
             )}
 
             <div className="track-list">
