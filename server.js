@@ -69,30 +69,18 @@ app.get('/api/stream', async (req, res) => {
     if (!videoId || videoId === 'undefined' || videoId === 'null') {
       return res.status(400).json({ error: 'Invalid or missing videoId' });
     }
-    
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log(`Streaming using yt-dlp: ${videoUrl}`);
 
-    // Use 'yt-dlp' from PATH if available (for Linux/Render), otherwise fallback to local exe or downloaded binary
-    let ytdlpPath = 'yt-dlp';
-    if (process.platform === 'win32') {
-      ytdlpPath = `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"`;
-    } else if (fs.existsSync(path.join(__dirname, 'yt-dlp'))) {
-      ytdlpPath = `./yt-dlp`;
-    }
-    
-    // Using @distube/ytdl-core for robust streaming (no external exe needed)
-    res.setHeader('Content-Type', 'audio/mpeg');
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    console.log(`[DEBUG] Attempting stream for: ${videoId}`);
+
+    // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
     res.setHeader('Accept-Ranges', 'bytes');
 
     try {
-      console.log(`Starting ytdl-core stream for: ${videoId}`);
-      const stream = ytdl(videoUrl, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        // Lower buffer for Render stability
-        highWaterMark: 1 << 20, 
+      const info = await ytdl.getInfo(videoUrl, {
         requestOptions: {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -100,62 +88,63 @@ app.get('/api/stream', async (req, res) => {
         }
       });
 
-      stream.on('info', (info) => {
-        console.log(`Streaming: ${info.videoDetails.title}`);
+      const format = ytdl.chooseFormat(info.formats, { 
+        filter: 'audioonly', 
+        quality: 'highestaudio' 
       });
 
+      if (!format) throw new Error('Nu am găsit un format audio compatibil.');
+
+      // Essential for browser playback: Correct Mime Type
+      const mimeType = format.mimeType.split(';')[0] || 'audio/webm';
+      res.setHeader('Content-Type', mimeType);
+      
+      if (format.contentLength) {
+        res.setHeader('Content-Length', format.contentLength);
+      }
+
+      console.log(`[STREAM] Redare: ${info.videoDetails.title} (${mimeType})`);
+
+      const stream = ytdl.downloadFromInfo(info, { format });
+
       stream.on('error', (err) => {
-        const errMsg = `ytdl stream error: ${err.message} (${err.code})`;
-        console.error(errMsg);
-        lastError = `[${new Date().toISOString()}] ${errMsg}\nStack: ${err.stack}`;
-        if (!res.headersSent) {
-          res.status(500).send(errMsg);
-        }
+        console.error('[STREAM ERROR]', err.message);
+        lastError = `[${new Date().toISOString()}] Stream Error: ${err.message}`;
+        if (!res.headersSent) res.status(500).end();
       });
 
       stream.pipe(res);
 
       req.on('close', () => {
+        console.log(`[DEBUG] Client Deconectat: ${videoId}`);
         stream.destroy();
       });
 
     } catch (ytdlErr) {
-      lastError = `[${new Date().toISOString()}] Catch Error: ${ytdlErr.message}`;
-      console.warn('ytdl-core failed, falling back to yt-dlp:', ytdlErr.message);
+      console.error('[YTDL ERROR]', ytdlErr.message);
+      lastError = `[${new Date().toISOString()}] YTDL Error: ${ytdlErr.message}`;
       
-      // FALLBACK TO YT-DLP
-      const ytArgs = [
-        '--no-playlist',
-        '--flat-playlist',
-        '-f', 'bestaudio',
-        '--output', '-',
-        '--force-ipv4',
-        '--extractor-args', 'youtube:player_client=web,android',
-        videoUrl
-      ];
+      // Fallback redirect (Direct YouTube Stream URL) - last resort
+      try {
+        const info = await ytdl.getInfo(videoUrl);
+        const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly' });
+        if (format && format.url) {
+           console.log("[DEBUG] Fallback: redirecting to direct URL");
+           return res.redirect(format.url);
+        }
+      } catch (e) {}
 
-      const normalizedPath = ytdlpPath.startsWith('"') ? ytdlpPath.slice(1, -1) : ytdlpPath;
-      const proc = spawn(normalizedPath, ytArgs);
-
-      res.setHeader('Content-Type', 'audio/mpeg');
-      proc.stdout.pipe(res);
-
-      proc.on('close', (code) => {
-        if (code !== 0 && !res.headersSent) res.status(500).end();
-        else res.end();
-      });
-
-      req.on('close', () => proc.kill());
+      if (!res.headersSent) res.status(500).json({ error: ytdlErr.message });
     }
 
   } catch (err) {
-    fs.appendFileSync('error_log.txt', `[${new Date().toISOString()}] SERVER STREAM ERROR: ${err.message}\n${err.stack}\n`);
-    console.error('SERVER STREAM ERROR:', err);
+    console.error('[GLOBAL ERROR]', err.message);
+    lastError = `[${new Date().toISOString()}] Global Error: ${err.message}`;
     if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
-// Catch-all to serve the frontend index.html for any non-API route
+// Catch-all to serve index.html
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
@@ -165,13 +154,12 @@ const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Music Backend is LIVE on port ${PORT}`);
+    console.log(`🚀 MDL Music Processor is LIVE on port ${PORT}`);
 });
 
-// Force the event loop to stay active
 setInterval(() => {
     // Keep alive heart-beat
-}, 3600000);
+}, 30000);
 
 server.on('error', (err) => {
     console.error('CRITICAL SERVER ERROR:', err);
