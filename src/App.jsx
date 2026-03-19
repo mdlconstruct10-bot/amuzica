@@ -56,7 +56,12 @@ function App() {
       }
 
       const ctx = new AudioContext()
-      const source = ctx.createMediaElementSource(audioRef.current)
+      
+      // CRITICAL: Ensure source is only created once
+      if (!sourceRef.current) {
+        sourceRef.current = ctx.createMediaElementSource(audioRef.current)
+      }
+      
       const bass = ctx.createBiquadFilter()
       const gain = ctx.createGain()
 
@@ -66,12 +71,11 @@ function App() {
 
       gain.gain.value = boostVolume
 
-      source.connect(bass)
+      sourceRef.current.connect(bass)
       bass.connect(gain)
       gain.connect(ctx.destination)
 
       audioCtxRef.current = ctx
-      sourceRef.current = source
       bassFilterRef.current = bass
       gainNodeRef.current = gain
       console.log('Web Audio Engine initialized')

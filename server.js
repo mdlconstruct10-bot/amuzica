@@ -5,6 +5,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 const execAsync = promisify(exec);
 import fs from 'fs';
+import https from 'https';
+import { IncomingMessage } from 'http';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -88,32 +90,66 @@ app.get('/api/stream', async (req, res) => {
 
     console.log(`yt-dlp extracted URL successfully`);
 
-    // Proxy the stream
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    // Proxy the stream using https module for better stability
+    const proxyHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity;q=1, *;q=0',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive',
+      'Sec-Fetch-Dest': 'audio',
+      'Sec-Fetch-Mode': 'no-cors',
+      'Sec-Fetch-Site': 'cross-site',
+      'Referer': 'https://www.youtube.com/'
     };
+
     if (req.headers.range) {
-      headers.Range = req.headers.range;
+      proxyHeaders.Range = req.headers.range;
     }
 
-    const response = await fetch(streamUrl, { headers });
-    
-    if (!response.ok) {
-       console.error(`Google Video Proxy Failed: ${response.status} ${response.statusText}`);
-       return res.status(response.status).json({ error: 'Google Video Access Denied', code: response.status });
-    }
+    const proxyReq = https.get(streamUrl, { headers: proxyHeaders }, (proxyRes) => {
+      // Forward status code
+      res.status(proxyRes.statusCode || 200);
 
-    // Forward headers
-    response.headers.forEach((value, name) => {
-      if (!['content-encoding', 'transfer-encoding', 'connection', 'host'].includes(name.toLowerCase())) {
-        res.setHeader(name, value);
-      }
+      // Forward headers
+      const headersToForward = [
+        'content-type',
+        'content-length',
+        'accept-ranges',
+        'content-range',
+        'cache-control',
+        'expires',
+        'last-modified'
+      ];
+
+      headersToForward.forEach(h => {
+        if (proxyRes.headers[h]) {
+          res.setHeader(h, proxyRes.headers[h]);
+        }
+      });
+
+      // Essential for cross-origin audio
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+
+      proxyRes.pipe(res);
+
+      proxyRes.on('error', (err) => {
+        console.error('Proxy Response Error:', err);
+        res.end();
+      });
     });
 
-    res.status(response.status);
-    
-    const { Readable } = await import('node:stream');
-    Readable.fromWeb(response.body).pipe(res);
+    proxyReq.on('error', (err) => {
+      console.error('Proxy Request Error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Proxy request failed' });
+    });
+
+    // Handle client disconnect
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
 
   } catch (err) {
     fs.appendFileSync('error_log.txt', `[${new Date().toISOString()}] SERVER STREAM ERROR: ${err.message}\n${err.stack}\n`);
