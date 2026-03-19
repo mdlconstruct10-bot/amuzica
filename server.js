@@ -71,12 +71,10 @@ app.get('/api/stream', async (req, res) => {
     }
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log(`[DEBUG] Redirecting for: ${videoId}`);
+    console.log(`[DEBUG] Proxying stream for: ${videoId}`);
 
-    // Set CORS headers just in case
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    // Strategy: Get a direct URL and redirect the browser (Redirect works best for iPhone/Safari)
     try {
       let ytdlpCmd = 'yt-dlp';
       if (process.platform === 'win32') {
@@ -86,45 +84,57 @@ app.get('/api/stream', async (req, res) => {
         ytdlpCmd = './yt-dlp';
       }
 
-      // Android client is the least likely to trigger "Sign in to confirm you're not a bot"
-      // We use --force-ipv4 because Render IPv6 is almost always blocked
-      const fullCmd = `${ytdlpCmd} --force-ipv4 --no-playlist --flat-playlist --extractor-args "youtube:player_client=android" -f bestaudio -g ${videoUrl}`;
-      
-      console.log(`Executing: ${fullCmd}`);
+      // 1. Get Google Video URL using Android Client to bypass bot detection
+      const fullCmd = `${ytdlpCmd} --force-ipv4 --no-playlist --extractor-args "youtube:player_client=android" -f bestaudio -g ${videoUrl}`;
       const { stdout } = await execAsync(fullCmd);
       const streamUrl = stdout.trim();
 
-      if (streamUrl) {
-         console.log("[DEBUG] Redirecting client to direct Google Video URL");
-         return res.redirect(streamUrl);
-      } else {
-         throw new Error("Nu s-a putut genera link-ul de streaming.");
+      if (!streamUrl) throw new Error("Nu am putut prelua link-ul audio (yt-dlp failed).");
+
+      // 2. Proxy the request from Render to YouTube
+      // Crucial: Forward `Range` header for iOS Safari compatibility
+      const proxyHeaders = {
+        'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 14; en_US) gzip',
+      };
+      
+      if (req.headers.range) {
+        proxyHeaders.Range = req.headers.range;
       }
+
+      const proxyReq = https.get(streamUrl, { headers: proxyHeaders }, (proxyRes) => {
+        // Check if YouTube blocked us despite Android Client
+        if (proxyRes.statusCode === 403) {
+           throw new Error("YouTube 403 Forbidden (Blocked)");
+        }
+
+        // Forward essential headers
+        const headers = { 'Access-Control-Allow-Origin': '*' };
+        ['content-type', 'content-length', 'content-range', 'accept-ranges'].forEach(h => {
+          if (proxyRes.headers[h]) headers[h] = proxyRes.headers[h];
+        });
+
+        res.writeHead(proxyRes.statusCode || 200, headers);
+        proxyRes.pipe(res);
+
+        proxyRes.on('error', (err) => {
+          console.error('[PROXY RES ERROR]', err.message);
+          res.end();
+        });
+      });
+
+      proxyReq.on('error', (err) => {
+        console.error('[PROXY REQ ERROR]', err.message);
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+      });
+
+      req.on('close', () => {
+        proxyReq.destroy();
+      });
 
     } catch (err) {
-      console.error('[REDIRECT ERROR]', err.message);
-      lastError = `[${new Date().toISOString()}] Redirect Error: ${err.message}`;
-
-      // FALLBACK: If yt-dlp fails, try ytdl-core as a last resort
-      try {
-        const info = await ytdl.getInfo(videoUrl, {
-          requestOptions: {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-          }
-        });
-        const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
-        if (format && format.url) {
-           return res.redirect(format.url);
-        }
-      } catch (e) {
-        lastError += `\n[YTDL Fallback] ${e.message}`;
-      }
-
-      if (!res.headersSent) {
-        res.status(500).send(`Eroare YouTube: ${err.message}. Link-ul de diagnoză: /api/debug`);
-      }
+      console.error('[EXTRACTION/PROXY ERROR]', err.message);
+      lastError = `[${new Date().toISOString()}] Stream Error: ${err.message}`;
+      if (!res.headersSent) res.status(500).json({ error: `Eroare Proxy: ${err.message}` });
     }
 
   } catch (err) {
