@@ -1,0 +1,6 @@
+node_modules
+dist
+.env
+error_log.txt
+*.exe
+.DS_Store
