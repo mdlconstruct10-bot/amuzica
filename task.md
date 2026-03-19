@@ -1,0 +1,30 @@
+# iOS PWA YouTube Music Player Tasks
+
+- [x] Project Setup
+  - [x] Initialize Vite React App
+  - [x] Configure pure CSS styling
+  - [x] Set up project structure
+- [/] iOS PWA Enhancements
+  - [x] Add manifest.json and icons
+  - [x] Add apple-touch-icon and meta tags for standalone mode
+- [x] Core UI Elements (Glassmorphism & Spotify Style)
+  - [x] Main Layout (deep black background)
+  - [x] Search Bar
+  - [x] Player View (Large Album Art, progress bar, minimalist controls)
+  - [x] Track List / Queue 
+- [x] YouTube Integration
+  - [x] Search API integration (Piped API)
+  - [x] Audio Stream extraction
+- [x] Media Player Implementation
+  - [x] HTML5 Audio setup
+  - [x] Background Audio & Lock Screen Controls (navigator.mediaSession)
+  - [x] Queue Management (Play, Skip, Next)
+- [x] Polish and Deploy
+  - [x] Ensure everything looks premium
+  - [x] Prepare for Netlify / Vercel hosting
+- [x] Bugfixes & Feature Requests
+  - [x] Replace dead Piped APIs with Custom Backend (Expess + yt-search + yt-dlp binary)
+  - [x] Add Trending / Suggestions to the Home Page
+  - [x] Fix audio playback format extraction using Native yt-dlp.exe proxying
+  - [x] Add mobile keyboard search support (Form + Search Button)
+  - [x] Add Liked Songs / Favorites functionality (Heart + Tab)

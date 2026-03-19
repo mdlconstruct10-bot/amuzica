@@ -1,0 +1,16 @@
+{
+  "name": "MDL MUZICCA",
+  "short_name": "AMUZICA",
+  "description": "Ad-free YouTube Music Player",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/2/26/Spotify_logo_with_text.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
