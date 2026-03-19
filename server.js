@@ -67,78 +67,64 @@ app.get('/api/stream', async (req, res) => {
   try {
     const videoId = req.query.v;
     if (!videoId || videoId === 'undefined' || videoId === 'null') {
-      return res.status(400).json({ error: 'Invalid or missing videoId' });
+      return res.status(400).json({ error: 'ID video missing' });
     }
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log(`[DEBUG] Request for: ${videoId}`);
+    console.log(`[DEBUG] Redirecting for: ${videoId}`);
 
+    // Set CORS headers just in case
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-    res.setHeader('Accept-Ranges', 'bytes');
 
+    // Strategy: Get a direct URL and redirect the browser (Redirect works best for iPhone/Safari)
     try {
-      // Use ANDROID client to bypass "bot" detection on Render
-      const ytdlOptions = {
-        requestOptions: {
-          headers: {
-            'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 14; en_US) gzip',
-            'X-YouTube-Client-Name': '3',
-            'X-YouTube-Client-Version': '19.05.36'
-          }
-        }
-      };
-
-      const info = await ytdl.getInfo(videoUrl, ytdlOptions);
-      const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
-      
-      if (!format) throw new Error('Nu am găsit un format audio.');
-
-      const mimeType = format.mimeType.split(';')[0] || 'audio/webm';
-      res.setHeader('Content-Type', mimeType);
-      if (format.contentLength) res.setHeader('Content-Length', format.contentLength);
-
-      console.log(`[STREAM] Redare (Android Client): ${info.videoDetails.title}`);
-      
-      const stream = ytdl.downloadFromInfo(info, { format });
-      stream.on('error', (err) => {
-        console.error('[STREAM ERROR]', err.message);
-        lastError = `[${new Date().toISOString()}] Stream Error: ${err.message}`;
-        if (!res.headersSent) res.status(500).end();
-      });
-      stream.pipe(res);
-
-      req.on('close', () => { stream.destroy(); });
-
-    } catch (ytdlErr) {
-      console.warn('[YTDL BOT DETECTED] Fallback to yt-dlp redirect...');
-      lastError = `[${new Date().toISOString()}] YTDL Bot Error: ${ytdlErr.message}`;
-
-      // FALLBACK: Redirect to direct Google Video URL obtained via yt-dlp
-      // We use a redirect because it's more likely to work if Render's proxy is blocked but the user's IP is not.
-      try {
-        let ytdlpCmd = 'yt-dlp';
-        if (process.platform === 'win32') {
-          ytdlpCmd = `"${path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/')}"`;
-        } else if (fs.existsSync(path.join(__dirname, 'yt-dlp'))) {
-          ytdlpCmd = `./yt-dlp`;
-        }
-
-        const fullCmd = `${ytdlpCmd} --force-ipv4 --extractor-args "youtube:player_client=android" -f bestaudio -g ${videoUrl}`;
-        const { stdout } = await execAsync(fullCmd);
-        const streamUrl = stdout.trim();
-        
-        if (streamUrl) {
-           console.log("[DEBUG] Fallback successful: Redirecting client...");
-           return res.redirect(streamUrl);
-        }
-      } catch (e) {
-        console.error('[FALLBACK ERROR]', e.message);
-        lastError += `\n[Fallback] ${e.message}`;
+      let ytdlpCmd = 'yt-dlp';
+      if (process.platform === 'win32') {
+        const localPath = path.join(__dirname, 'yt-dlp.exe').replace(/\\/g, '/');
+        ytdlpCmd = fs.existsSync(localPath) ? `"${localPath}"` : 'yt-dlp';
+      } else if (fs.existsSync('./yt-dlp')) {
+        ytdlpCmd = './yt-dlp';
       }
 
-      if (!res.headersSent) res.status(500).json({ error: 'YouTube a blocat conexiunea. Încearcă din nou.' });
+      // Android client is the least likely to trigger "Sign in to confirm you're not a bot"
+      // We use --force-ipv4 because Render IPv6 is almost always blocked
+      const fullCmd = `${ytdlpCmd} --force-ipv4 --no-playlist --flat-playlist --extractor-args "youtube:player_client=android" -f bestaudio -g ${videoUrl}`;
+      
+      console.log(`Executing: ${fullCmd}`);
+      const { stdout } = await execAsync(fullCmd);
+      const streamUrl = stdout.trim();
+
+      if (streamUrl) {
+         console.log("[DEBUG] Redirecting client to direct Google Video URL");
+         return res.redirect(streamUrl);
+      } else {
+         throw new Error("Nu s-a putut genera link-ul de streaming.");
+      }
+
+    } catch (err) {
+      console.error('[REDIRECT ERROR]', err.message);
+      lastError = `[${new Date().toISOString()}] Redirect Error: ${err.message}`;
+
+      // FALLBACK: If yt-dlp fails, try ytdl-core as a last resort
+      try {
+        const info = await ytdl.getInfo(videoUrl, {
+          requestOptions: {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+          }
+        });
+        const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
+        if (format && format.url) {
+           return res.redirect(format.url);
+        }
+      } catch (e) {
+        lastError += `\n[YTDL Fallback] ${e.message}`;
+      }
+
+      if (!res.headersSent) {
+        res.status(500).send(`Eroare YouTube: ${err.message}. Link-ul de diagnoză: /api/debug`);
+      }
     }
 
   } catch (err) {
