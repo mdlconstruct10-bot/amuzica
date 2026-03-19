@@ -1,5 +1,4 @@
-const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-const API_URL = `http://${host || 'localhost'}:3000/api`;
+const API_URL = '/api';
 
 export async function searchYouTube(query) {
   if (!query) return [];
