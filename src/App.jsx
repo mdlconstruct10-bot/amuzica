@@ -378,7 +378,6 @@ function App() {
       {/* HIDDEN AUDIO ELEMENT - CRITICAL FOR PLAYBACK */}
       <audio 
         ref={audioRef} 
-        crossOrigin="anonymous" 
         onTimeUpdate={handleTimeUpdate} 
         onEnded={handleEnded} 
         onCanPlay={() => {
