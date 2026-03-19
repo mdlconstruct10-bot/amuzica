@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import ytSearch from 'yt-search';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 const execAsync = promisify(exec);
 import fs from 'fs';
@@ -74,81 +74,51 @@ app.get('/api/stream', async (req, res) => {
       ytdlpPath = `./yt-dlp`;
     }
     
-    // Fixed yt-dlp command with better flags
-    const command = `${ytdlpPath} --no-playlist --flat-playlist -f bestaudio -g ${videoUrl}`;
-    console.log(`Executing: ${command}`);
+    // Using spawn to pipe yt-dlp stdout directly to res
+    // This is much more robust than extracting a URL and proxying it manually
+    const ytArgs = [
+      '--no-playlist',
+      '--flat-playlist',
+      '-f', 'bestaudio',
+      '--output', '-', // Output to stdout
+      '--no-warnings',
+      '--ignore-errors',
+      '--force-ipv4',
+      '--extractor-args', 'youtube:player_client=web,android',
+      videoUrl
+    ];
+
+    console.log(`Spawning yt-dlp for streaming: ${ytdlpPath} ${ytArgs.join(' ')}`);
     
-    const { stdout, stderr } = await execAsync(command);
-    
-    if (stderr) console.warn(`yt-dlp stderr: ${stderr}`);
-    
-    const streamUrl = stdout.trim();
-    
-    if (!streamUrl) {
-      throw new Error(`yt-dlp failed to extract stream URL. stderr: ${stderr}`);
-    }
+    // We remove the quotes if we are on Windows and using spawn (spawn handles spaces in paths better)
+    const normalizedPath = ytdlpPath.startsWith('"') ? ytdlpPath.slice(1, -1) : ytdlpPath;
+    const proc = spawn(normalizedPath, ytArgs);
 
-    console.log(`yt-dlp extracted URL successfully`);
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Access-Control-Allow-Origin', '*');
 
-    // Proxy the stream using https module for better stability
-    const proxyHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Encoding': 'identity;q=1, *;q=0',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Connection': 'keep-alive',
-      'Sec-Fetch-Dest': 'audio',
-      'Sec-Fetch-Mode': 'no-cors',
-      'Sec-Fetch-Site': 'cross-site',
-      'Referer': 'https://www.youtube.com/'
-    };
+    proc.stdout.pipe(res);
 
-    if (req.headers.range) {
-      proxyHeaders.Range = req.headers.range;
-    }
+    proc.stderr.on('data', (data) => {
+      // Log errors but don't break the stream unless fatal
+      if (data.toString().includes('ERROR')) {
+        console.error(`yt-dlp Error: ${data}`);
+      }
+    });
 
-    const proxyReq = https.get(streamUrl, { headers: proxyHeaders }, (proxyRes) => {
-      // Forward status code
-      res.status(proxyRes.statusCode || 200);
-
-      // Forward headers
-      const headersToForward = [
-        'content-type',
-        'content-length',
-        'accept-ranges',
-        'content-range',
-        'cache-control',
-        'expires',
-        'last-modified'
-      ];
-
-      headersToForward.forEach(h => {
-        if (proxyRes.headers[h]) {
-          res.setHeader(h, proxyRes.headers[h]);
-        }
-      });
-
-      // Essential for cross-origin audio
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-
-      proxyRes.pipe(res);
-
-      proxyRes.on('error', (err) => {
-        console.error('Proxy Response Error:', err);
+    proc.on('close', (code) => {
+      console.log(`yt-dlp process exited with code ${code}`);
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).send('Stream failed');
+      } else {
         res.end();
-      });
+      }
     });
 
-    proxyReq.on('error', (err) => {
-      console.error('Proxy Request Error:', err);
-      if (!res.headersSent) res.status(500).json({ error: 'Proxy request failed' });
-    });
-
-    // Handle client disconnect
+    // Kill process if client disconnects
     req.on('close', () => {
-      proxyReq.destroy();
+      proc.kill();
     });
 
   } catch (err) {
